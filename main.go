@@ -17,10 +17,11 @@ import (
 
 var DB *sqlx.DB
 
+// connectDB loads environment variables and establishes a PostgreSQL connection.
 func connectDB() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("❌ Error loading .env file")
+		log.Fatal("Error loading environment variables from .env file")
 	}
 
 	connStr := fmt.Sprintf(
@@ -34,19 +35,16 @@ func connectDB() {
 
 	DB, err = sqlx.Connect("postgres", connStr)
 	if err != nil {
-		log.Fatalf("❌ Failed to connect to DB: %v", err)
+		log.Fatalf("Database connection failed: %v", err)
 	}
 
-	db.DB = DB // ✅ Share DB connection globally
-
-	logrus.Infof("✅ Connected to PostgreSQL database: %s", os.Getenv("DB_NAME"))
+	db.DB = DB
+	logrus.Infof("Connected to PostgreSQL database: %s", os.Getenv("DB_NAME"))
 }
 
 func main() {
 	connectDB()
-
 	api.StartPriceUpdater()
-
 
 	router := gin.Default()
 
@@ -54,7 +52,6 @@ func main() {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	// Reward endpoint
 	router.POST("/reward", api.AddReward)
 	router.GET("/stats/:userId", api.GetStats)
 	router.GET("/portfolio/:userId", api.GetPortfolio)
@@ -63,13 +60,11 @@ func main() {
 	router.POST("/stock-adjustment", api.AddOrUpdateStockAdjustment)
 	router.GET("/stock-adjustments", api.GetAllStockAdjustments)
 
-
-
-
-
-
-
 	port := os.Getenv("PORT")
-	logrus.Infof("🚀 Server running on port %s", port)
+	if port == "" {
+		port = "8080"
+	}
+
+	logrus.Infof("Server running on port %s", port)
 	router.Run(":" + port)
 }

@@ -26,10 +26,10 @@ CREATE TABLE IF NOT EXISTS stock_prices (
 );
 
 CREATE TABLE IF NOT EXISTS stock_adjustments (
-    stock_symbol VARCHAR(20) PRIMARY KEY,         -- e.g. RELIANCE, TCS
-    multiplier NUMERIC(10,4) DEFAULT 1.0000,      -- e.g. 2.0000 for 2:1 split
-    effective_date DATE NOT NULL,                 -- when split/merger takes effect
-    delisted BOOLEAN DEFAULT FALSE,               -- true = stock no longer active
-    updated_at TIMESTAMP DEFAULT NOW()            -- last update timestamp
+    stock_symbol VARCHAR(20) PRIMARY KEY,         
+    multiplier NUMERIC(10,4) DEFAULT 1.0000,      
+    effective_date DATE NOT NULL,                 
+    delisted BOOLEAN DEFAULT FALSE,               
+    updated_at TIMESTAMP DEFAULT NOW()            
 );
 

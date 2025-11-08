@@ -10,7 +10,8 @@ import (
 	"stocky-assignment/db"
 )
 
-// ------------------- Structs -------------------
+// ------------------- Data Models -------------------
+
 type RewardRequest struct {
 	UserID      string  `json:"user_id" binding:"required"`
 	StockSymbol string  `json:"stock_symbol" binding:"required"`
@@ -26,17 +27,18 @@ type RewardResponse struct {
 type AdjustmentRequest struct {
 	StockSymbol   string  `json:"stock_symbol" binding:"required"`
 	Multiplier    float64 `json:"multiplier" binding:"required"`
-	EffectiveDate string  `json:"effective_date" binding:"required"` // YYYY-MM-DD
-	Delisted      bool    `json:"delisted"`                          // optional
+	EffectiveDate string  `json:"effective_date" binding:"required"`
+	Delisted      bool    `json:"delisted"`
 }
 
-// ------------------- Add Reward -------------------
+// ------------------- Reward API -------------------
+
 func AddReward(c *gin.Context) {
 	var req RewardRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		logrus.Warn("Invalid request payload")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		logrus.Warn("Invalid input data")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -51,17 +53,16 @@ func AddReward(c *gin.Context) {
 
 	err := db.DB.QueryRow(query, req.UserID, req.StockSymbol, req.Shares).Scan(&rewardID, &rewardTime)
 	if err != nil {
-		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
-			logrus.Warnf("Duplicate reward for user %s, stock %s", req.UserID, req.StockSymbol)
-			c.JSON(http.StatusConflict, gin.H{"error": "Duplicate reward event — this reward already exists"})
+		if strings.Contains(err.Error(), "duplicate key value") {
+			c.JSON(http.StatusConflict, gin.H{"error": "Duplicate reward entry"})
 			return
 		}
-		logrus.Errorf("DB insert error: %v", err)
+		logrus.Errorf("Error inserting reward: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
 
-	logrus.Infof("✅ Reward added: %+v", req)
+	logrus.Infof("Reward added successfully for user %s, stock %s", req.UserID, req.StockSymbol)
 	c.JSON(http.StatusOK, RewardResponse{
 		Message:  "Reward recorded successfully",
 		RewardID: rewardID,
@@ -69,7 +70,8 @@ func AddReward(c *gin.Context) {
 	})
 }
 
-// ------------------- Stats (Today's Total) -------------------
+// ------------------- User Statistics -------------------
+
 func GetStats(c *gin.Context) {
 	userId := c.Param("userId")
 
@@ -89,8 +91,8 @@ func GetStats(c *gin.Context) {
 
 	rows, err := db.DB.Query(query, userId)
 	if err != nil {
-		logrus.Errorf("DB query error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		logrus.Errorf("Error executing stats query: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error"})
 		return
 	}
 	defer rows.Close()
@@ -101,7 +103,7 @@ func GetStats(c *gin.Context) {
 	}
 
 	var stats []StockStat
-	totalValue := 0.0
+	var totalValue float64
 
 	for rows.Next() {
 		var s StockStat
@@ -120,6 +122,7 @@ func GetStats(c *gin.Context) {
 }
 
 // ------------------- Portfolio -------------------
+
 func GetPortfolio(c *gin.Context) {
 	userId := c.Param("userId")
 
@@ -129,10 +132,8 @@ func GetPortfolio(c *gin.Context) {
 			SUM(r.shares * COALESCE(sa.multiplier, 1.0)) AS total_shares,
 			COALESCE(sp.price, 1000) AS current_price
 		FROM rewards r
-		LEFT JOIN stock_prices sp 
-			ON r.stock_symbol = sp.stock_symbol
-		LEFT JOIN stock_adjustments sa 
-			ON r.stock_symbol = sa.stock_symbol
+		LEFT JOIN stock_prices sp ON r.stock_symbol = sp.stock_symbol
+		LEFT JOIN stock_adjustments sa ON r.stock_symbol = sa.stock_symbol
 			AND sa.effective_date <= CURRENT_DATE
 		WHERE r.user_id = $1
 		  AND (sa.delisted IS NULL OR sa.delisted = FALSE)
@@ -141,8 +142,8 @@ func GetPortfolio(c *gin.Context) {
 
 	rows, err := db.DB.Query(query, userId)
 	if err != nil {
-		logrus.Errorf("DB query error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		logrus.Errorf("Error fetching portfolio: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error"})
 		return
 	}
 	defer rows.Close()
@@ -155,7 +156,7 @@ func GetPortfolio(c *gin.Context) {
 	}
 
 	var portfolio []Holding
-	totalValue := 0.0
+	var totalValue float64
 
 	for rows.Next() {
 		var h Holding
@@ -174,6 +175,7 @@ func GetPortfolio(c *gin.Context) {
 }
 
 // ------------------- Historical INR -------------------
+
 func GetHistoricalINR(c *gin.Context) {
 	userId := c.Param("userId")
 
@@ -182,10 +184,8 @@ func GetHistoricalINR(c *gin.Context) {
 			DATE(r.reward_time) AS date,
 			SUM(r.shares * COALESCE(sa.multiplier, 1.0) * COALESCE(sp.price, 1000)) AS total_inr
 		FROM rewards r
-		LEFT JOIN stock_prices sp 
-			ON r.stock_symbol = sp.stock_symbol
-		LEFT JOIN stock_adjustments sa 
-			ON r.stock_symbol = sa.stock_symbol
+		LEFT JOIN stock_prices sp ON r.stock_symbol = sp.stock_symbol
+		LEFT JOIN stock_adjustments sa ON r.stock_symbol = sa.stock_symbol
 			AND sa.effective_date <= CURRENT_DATE
 		WHERE r.user_id = $1
 		  AND (sa.delisted IS NULL OR sa.delisted = FALSE)
@@ -196,8 +196,8 @@ func GetHistoricalINR(c *gin.Context) {
 
 	rows, err := db.DB.Query(query, userId)
 	if err != nil {
-		logrus.Errorf("DB query error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		logrus.Errorf("Error fetching historical INR: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error"})
 		return
 	}
 	defer rows.Close()
@@ -221,7 +221,8 @@ func GetHistoricalINR(c *gin.Context) {
 	})
 }
 
-// ------------------- Today’s Stocks -------------------
+// ------------------- Today's Stocks -------------------
+
 func GetTodayStocks(c *gin.Context) {
 	userId := c.Param("userId")
 
@@ -230,8 +231,7 @@ func GetTodayStocks(c *gin.Context) {
 		       r.shares * COALESCE(sa.multiplier, 1.0) AS adjusted_shares,
 		       r.reward_time
 		FROM rewards r
-		LEFT JOIN stock_adjustments sa 
-			ON r.stock_symbol = sa.stock_symbol
+		LEFT JOIN stock_adjustments sa ON r.stock_symbol = sa.stock_symbol
 			AND sa.effective_date <= CURRENT_DATE
 		WHERE r.user_id = $1
 		  AND DATE(r.reward_time) = CURRENT_DATE
@@ -241,8 +241,8 @@ func GetTodayStocks(c *gin.Context) {
 
 	rows, err := db.DB.Query(query, userId)
 	if err != nil {
-		logrus.Errorf("DB query error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		logrus.Errorf("Error fetching today's stocks: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error"})
 		return
 	}
 	defer rows.Close()
@@ -269,10 +269,11 @@ func GetTodayStocks(c *gin.Context) {
 }
 
 // ------------------- Stock Adjustment -------------------
+
 func AddOrUpdateStockAdjustment(c *gin.Context) {
 	var req AdjustmentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		logrus.Warn("Invalid stock adjustment payload")
+		logrus.Warn("Invalid input payload for stock adjustment")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
@@ -289,8 +290,8 @@ func AddOrUpdateStockAdjustment(c *gin.Context) {
 
 	_, err := db.DB.Exec(query, req.StockSymbol, req.Multiplier, req.EffectiveDate, req.Delisted)
 	if err != nil {
-		logrus.Errorf("Failed to add/update stock adjustment: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		logrus.Errorf("Error updating stock adjustment: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database update failed"})
 		return
 	}
 
@@ -298,16 +299,16 @@ func AddOrUpdateStockAdjustment(c *gin.Context) {
 	if req.Delisted {
 		action = "delisted"
 	}
-	logrus.Infof("✅ %s stock adjustment for %s (multiplier %.2f, effective %s)",
-		action, req.StockSymbol, req.Multiplier, req.EffectiveDate)
+	logrus.Infof("Stock %s %s (multiplier %.2f, effective %s)", req.StockSymbol, action, req.Multiplier, req.EffectiveDate)
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Stock adjustment recorded successfully",
+		"message": "Stock adjustment processed successfully",
 		"stock":   req.StockSymbol,
 	})
 }
 
 // ------------------- List Adjustments -------------------
+
 func GetAllStockAdjustments(c *gin.Context) {
 	rows, err := db.DB.Query(`
 		SELECT stock_symbol, multiplier, effective_date, delisted 
@@ -315,7 +316,7 @@ func GetAllStockAdjustments(c *gin.Context) {
 		ORDER BY stock_symbol;
 	`)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error"})
 		return
 	}
 	defer rows.Close()
