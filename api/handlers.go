@@ -78,15 +78,16 @@ func GetStats(c *gin.Context) {
 	query := `
 		SELECT 
 			r.stock_symbol,
-			SUM(r.shares * COALESCE(sa.multiplier, 1.0)) AS total_shares
+			SUM(r.shares * COALESCE(sa.multiplier, 1.0)) AS total_shares,
+			COALESCE(sp.price, 1000) AS current_price
 		FROM rewards r
-		LEFT JOIN stock_adjustments sa 
-			ON r.stock_symbol = sa.stock_symbol
+		LEFT JOIN stock_prices sp ON r.stock_symbol = sp.stock_symbol
+		LEFT JOIN stock_adjustments sa ON r.stock_symbol = sa.stock_symbol
 			AND sa.effective_date <= CURRENT_DATE
 		WHERE r.user_id = $1
 		  AND DATE(r.reward_time) = CURRENT_DATE
 		  AND (sa.delisted IS NULL OR sa.delisted = FALSE)
-		GROUP BY r.stock_symbol;
+		GROUP BY r.stock_symbol, sp.price;
 	`
 
 	rows, err := db.DB.Query(query, userId)
@@ -98,8 +99,9 @@ func GetStats(c *gin.Context) {
 	defer rows.Close()
 
 	type StockStat struct {
-		StockSymbol string  `json:"stock_symbol"`
-		TotalShares float64 `json:"total_shares"`
+		StockSymbol  string  `json:"stock_symbol"`
+		TotalShares  float64 `json:"total_shares"`
+		CurrentPrice float64 `json:"current_price"`
 	}
 
 	var stats []StockStat
@@ -107,10 +109,12 @@ func GetStats(c *gin.Context) {
 
 	for rows.Next() {
 		var s StockStat
-		rows.Scan(&s.StockSymbol, &s.TotalShares)
+		if err := rows.Scan(&s.StockSymbol, &s.TotalShares, &s.CurrentPrice); err != nil {
+			logrus.Warnf("Row scan failed: %v", err)
+			continue
+		}
 		s.TotalShares = round(s.TotalShares, 6)
-		price := 1000 + float64(len(s.StockSymbol))*100
-		totalValue += price * s.TotalShares
+		totalValue += s.TotalShares * s.CurrentPrice
 		stats = append(stats, s)
 	}
 
@@ -120,6 +124,7 @@ func GetStats(c *gin.Context) {
 		"portfolio_inr_value": round(totalValue, 2),
 	})
 }
+
 
 // ------------------- Portfolio -------------------
 
