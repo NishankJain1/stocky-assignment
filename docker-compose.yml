@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:17
+    container_name: assignment-db
+    restart: always
+    environment:
+      POSTGRES_USER: stocky_user
+      POSTGRES_PASSWORD: stocky123
+      POSTGRES_DB: assignment
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+
+volumes:
+  pgdata:
